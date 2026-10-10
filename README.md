@@ -252,7 +252,8 @@ pkill -f "gdbus monitor --session --dest org.gnome.ScreenSaver"
     esac
     [ "$new" = "$mode" ] && continue
     mode=$new
-    pkill -x conky; sleep 1
+    # a paused (stopped) Conky ignores SIGTERM until resumed: wake it first
+    pkill -CONT -x conky; pkill -x conky; sleep 1
     if [ "$mode" = landscape ]; then
       conky -q -d -c "$DIR/landscape.conf"
     else
@@ -271,7 +272,7 @@ How it works:
 
 - Two event streams are merged into one pipe and handled by a single loop: orientation changes from `monitor-sensor` and screen lock changes from `gdbus monitor`.
 - **Rotation:** on the FLX1s the accelerometer is not exposed as a plain file in `/sys`; sensors go through the Android HAL. `iio-sensor-proxy` computes the orientation and publishes it over D-Bus, and `monitor-sensor` prints every change. The initial `=== Has accelerometer (orientation: ...)` line selects the correct layout right at startup.
-- **Screen lock:** Phosh emits `org.gnome.ScreenSaver.ActiveChanged` – `true` when the screen is locked (pressing the power button blanks and locks it), `false` when unlocked. Conky is paused with `SIGSTOP` and resumed with `SIGCONT`, so it continues instantly without a restart. If the phone is rotated while locked, the new layout is started paused.
+- **Screen lock:** Phosh emits `org.gnome.ScreenSaver.ActiveChanged` – `true` when the screen is locked (pressing the power button blanks and locks it), `false` when unlocked. Conky is paused with `SIGSTOP` and resumed with `SIGCONT`, so it continues instantly without a restart. If the phone is rotated while locked, the old paused instance is woken with `SIGCONT` before being terminated (a stopped process does not act on `SIGTERM` until resumed) and the new layout is started paused.
 - The script reacts only to events, so it uses no CPU while idle.
 - `stdbuf -oL` forces line-buffered output; without it the monitors buffer their output when piped and events arrive late.
 - Starting the script again stops the previous instance first, so it is safe to re-run.
@@ -293,7 +294,7 @@ nohup ~/.config/conky/conky-orient.sh >/dev/null 2>&1 &
 Stop everything:
 
 ```bash
-pkill -f conky-orient.sh; pkill -f "monitor-sensor --accel"; pkill -f "gdbus monitor --session --dest org.gnome.ScreenSaver"; pkill -x conky
+pkill -f conky-orient.sh; pkill -f "monitor-sensor --accel"; pkill -f "gdbus monitor --session --dest org.gnome.ScreenSaver"; pkill -CONT -x conky; pkill -x conky
 ```
 
 Reload a layout after editing it (the controller keeps running):
