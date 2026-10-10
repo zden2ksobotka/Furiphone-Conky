@@ -1,6 +1,6 @@
 # Conky for FuriLabs FLX1s (FuriOS / Phosh)
 
-A full-screen Conky system monitor tuned for the **FuriLabs FLX1s** running **FuriOS** with the **Phosh** shell on Wayland. It renders as a background layer (not a normal window) and automatically switches layout when the phone is rotated.
+A full-screen Conky system monitor tuned for the **FuriLabs FLX1s** running **FuriOS** with the **Phosh** shell on Wayland. It renders as a background layer (not a normal window), automatically switches layout when the phone is rotated and pauses itself while the screen is locked to save battery.
 
 **Portrait** – full system overview:
 
@@ -13,6 +13,8 @@ A full-screen Conky system monitor tuned for the **FuriLabs FLX1s** running **Fu
 - Live `dmesg` tail filling the rest of the screen
 
 **Landscape** – wide live `dmesg` view only.
+
+**Locked screen** – Conky is paused (`SIGSTOP`) and uses no CPU; it resumes instantly on unlock.
 
 ## Requirements
 
@@ -41,6 +43,14 @@ monitor-sensor --accel
 
 You should see lines such as `Accelerometer orientation changed: left-up`.
 
+Verify lock detection (lock and unlock the phone, then `Ctrl+C`):
+
+```bash
+gdbus monitor --session --dest org.gnome.ScreenSaver --object-path /org/gnome/ScreenSaver
+```
+
+You should see `ActiveChanged (true,)` when locked and `ActiveChanged (false,)` when unlocked.
+
 ## Which user?
 
 **Run everything as the regular `furios` user, not as root.**
@@ -55,7 +65,7 @@ Conky has to connect to the Phosh session, which belongs to `furios`. Root does 
 ~/.config/conky/
 ├── conky.conf        # portrait layout
 ├── landscape.conf    # landscape layout (dmesg only)
-├── conky-orient.sh   # watches rotation and switches layouts
+├── conky-orient.sh   # controller: switches layouts on rotation, pauses on lock
 ├── bat.sh            # battery level / status (auto-detects the battery)
 ├── ipv6.sh           # global IPv6 address of wlan0
 └── dmesg.sh          # filtered dmesg tail: dmesg.sh [lines] [columns]
@@ -210,29 +220,48 @@ ${font DejaVu Sans Mono:size=6}${execi 10 ~/.config/conky/dmesg.sh 30 170}${font
 EOF
 ```
 
-### 4. Rotation watcher
+### 4. Controller (rotation + screen lock)
 
 ```bash
 cat > ~/.config/conky/conky-orient.sh <<'EOF'
 #!/bin/sh
-# Switches Conky layout on accelerometer orientation changes (iio-sensor-proxy).
+# Conky controller for FuriPhone FLX1s:
+#  - switches portrait/landscape layout on rotation (iio-sensor-proxy)
+#  - pauses Conky while the screen is locked (Phosh, org.gnome.ScreenSaver)
 DIR="$HOME/.config/conky"
-last=""
-stdbuf -oL monitor-sensor --accel | while read -r line; do
-  case "$line" in
-    *left-up*|*right-up*) mode=landscape ;;
-    *normal*|*bottom-up*) mode=portrait ;;
-    *) continue ;;
-  esac
-  [ "$mode" = "$last" ] && continue
-  pkill -x conky; sleep 1
-  if [ "$mode" = landscape ]; then
-    conky -q -d -c "$DIR/landscape.conf"
-  else
-    conky -q -d -c "$DIR/conky.conf"
-  fi
-  last=$mode
-done
+
+# stop a previously running instance of this controller
+pgrep -f conky-orient.sh | grep -vx "$$" | xargs -r kill 2>/dev/null
+pkill -f "monitor-sensor --accel"
+pkill -f "gdbus monitor --session --dest org.gnome.ScreenSaver"
+
+{
+  stdbuf -oL monitor-sensor --accel &
+  stdbuf -oL gdbus monitor --session --dest org.gnome.ScreenSaver \
+    --object-path /org/gnome/ScreenSaver &
+  wait
+} | {
+  mode=""; locked=0
+  while read -r line; do
+    case "$line" in
+      *ActiveChanged*true*)  locked=1; pkill -STOP -x conky; continue ;;
+      *ActiveChanged*false*) locked=0; pkill -CONT -x conky; continue ;;
+      *left-up*|*right-up*)  new=landscape ;;
+      *normal*|*bottom-up*)  new=portrait ;;
+      *) continue ;;
+    esac
+    [ "$new" = "$mode" ] && continue
+    mode=$new
+    pkill -x conky; sleep 1
+    if [ "$mode" = landscape ]; then
+      conky -q -d -c "$DIR/landscape.conf"
+    else
+      conky -q -d -c "$DIR/conky.conf"
+    fi
+    # rotated while locked: start paused
+    [ "$locked" = 1 ] && { sleep 1; pkill -STOP -x conky; }
+  done
+}
 EOF
 
 chmod +x ~/.config/conky/conky-orient.sh
@@ -240,10 +269,12 @@ chmod +x ~/.config/conky/conky-orient.sh
 
 How it works:
 
-- On the FLX1s the accelerometer is not exposed as a plain file in `/sys`; sensors go through the Android HAL. `iio-sensor-proxy` computes the orientation and publishes it over D-Bus, and `monitor-sensor` prints every change.
+- Two event streams are merged into one pipe and handled by a single loop: orientation changes from `monitor-sensor` and screen lock changes from `gdbus monitor`.
+- **Rotation:** on the FLX1s the accelerometer is not exposed as a plain file in `/sys`; sensors go through the Android HAL. `iio-sensor-proxy` computes the orientation and publishes it over D-Bus, and `monitor-sensor` prints every change. The initial `=== Has accelerometer (orientation: ...)` line selects the correct layout right at startup.
+- **Screen lock:** Phosh emits `org.gnome.ScreenSaver.ActiveChanged` – `true` when the screen is locked (pressing the power button blanks and locks it), `false` when unlocked. Conky is paused with `SIGSTOP` and resumed with `SIGCONT`, so it continues instantly without a restart. If the phone is rotated while locked, the new layout is started paused.
 - The script reacts only to events, so it uses no CPU while idle.
-- `stdbuf -oL` forces line-buffered output; without it `monitor-sensor` buffers its output when piped and rotation events arrive late.
-- The initial `=== Has accelerometer (orientation: ...)` line selects the correct layout right at startup.
+- `stdbuf -oL` forces line-buffered output; without it the monitors buffer their output when piped and events arrive late.
+- Starting the script again stops the previous instance first, so it is safe to re-run.
 
 ### 5. First run (foreground test)
 
@@ -262,10 +293,10 @@ nohup ~/.config/conky/conky-orient.sh >/dev/null 2>&1 &
 Stop everything:
 
 ```bash
-pkill -f conky-orient.sh; pkill -x conky
+pkill -f conky-orient.sh; pkill -f "monitor-sensor --accel"; pkill -f "gdbus monitor --session --dest org.gnome.ScreenSaver"; pkill -x conky
 ```
 
-Reload a layout after editing it (the watcher keeps running):
+Reload a layout after editing it (the controller keeps running):
 
 ```bash
 pkill -x conky; sleep 1; conky -q -d -c ~/.config/conky/conky.conf >/dev/null 2>&1       # portrait
@@ -286,3 +317,18 @@ X-GNOME-Autostart-enabled=true
 NoDisplay=true
 EOF
 ```
+
+### 8. Verify power saving (optional)
+
+Lock the phone and run over SSH:
+
+```bash
+P=$(pgrep -x conky)
+awk '{print "CPU ticks:", $14+$15}' /proc/$P/stat; sleep 10
+awk '{print "CPU ticks:", $14+$15}' /proc/$P/stat
+grep State /proc/$P/status
+```
+
+While locked, both numbers are identical (no CPU time used in 10 s) and the state is `T (stopped)`. When unlocked, the second number grows and the state is `S (sleeping)`.
+
+Note: the `%CPU` column of `ps` is the average over the whole process lifetime, not the current load, so it does not drop to zero while Conky is paused.
