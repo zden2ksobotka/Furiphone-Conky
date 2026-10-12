@@ -296,7 +296,7 @@ ${downspeedgraph wlan0 25,180 5FE08A 5FE08A}${alignr}${upspeedgraph wlan0 25,180
 ${voffset -5}${color1}LOGGED IN ${color4}${hr 1}${color}
 ${font DejaVu Sans Mono:size=7}${execi 10 who | head -n 10 | cut -c1-66}${font}
 ${color1}SYSLOG ${color4}${hr 1}${color3}
-${font Noto Mono:size=6}${execi 10 ~/.config/conky/syslog.sh 35 400 3}${font}${color}
+${font Noto Mono:size=6}${execi 10 ~/.config/conky/syslog.sh 35 77 3}${font}${color}
 ]];
 EOF
 ```
