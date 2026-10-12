@@ -1,87 +1,101 @@
-Conky for FuriLabs FLX1s (FuriOS / Phosh)
+# Conky for FuriLabs FLX1s (FuriOS / Phosh)
 
-A full-screen Conky system monitor tuned for the FuriLabs FLX1s running FuriOS with the Phosh shell on Wayland. It renders as a transparent background layer (not a normal window), is shown only in portrait orientation and pauses itself whenever it cannot be seen, to save battery.
+A full-screen Conky system monitor tuned for the **FuriLabs FLX1s** running **FuriOS** with the **Phosh** shell on Wayland. It renders as a transparent background layer (not a normal window), is shown only in portrait orientation and pauses itself whenever it cannot be seen, to save battery.
 
 What it shows (portrait):
 
-Clock and date
-System: uptime, battery level and charging status (bar turns red below 20 %)
-CPU: usage, load average and usage bar
-Memory: RAM and root filesystem usage
-Network: Wi-Fi SSID, IPv4, gateway, IPv6, public IP
-Network graph: download / upload speed with history graphs
-Logged-in users (who, max. 10 lines)
-Syslog: kernel log (dmesg) and system journal merged by time, filling the rest of the screen
+- Clock and date
+- System: uptime, battery level and charging status (bar turns red below 20 %)
+- CPU: usage, load average and usage bar
+- Memory: RAM and root filesystem usage
+- Network: Wi-Fi SSID, IPv4, gateway, IPv6, public IP
+- Network graph: download / upload speed with history graphs
+- Logged-in users (`who`, max. 10 lines)
+- Syslog: kernel log (`dmesg`) and system journal merged by time, filling the rest of the screen
 
 Behaviour:
 
-Situation	Conky
-Portrait, home screen	running
-Portrait, an app in the foreground	paused (SIGSTOP), no CPU
-Screen locked / display off	paused (SIGSTOP), no CPU
-Landscape	stopped (hidden before Phosh finishes the rotation)
-Rotation lock enabled	tilting the phone changes nothing
-Requirements
-FuriLabs FLX1s (720×1600 display, Phosh scaling 1.75×)
-The packages below (most of them are already part of FuriOS)
-bash
+| Situation | Conky |
+|---|---|
+| Portrait, home screen | running |
+| Portrait, an app in the foreground | paused (`SIGSTOP`), no CPU |
+| Screen locked / display off | paused (`SIGSTOP`), no CPU |
+| Landscape | stopped (hidden before Phosh finishes the rotation) |
+| Rotation lock enabled | tilting the phone changes nothing |
+
+## Requirements
+
+- FuriLabs FLX1s (720×1600 display, Phosh scaling 1.75×)
+- The packages below (most of them are already part of FuriOS)
+
+```bash
 sudo apt install conky-std curl wlr-randr wlrctl iio-sensor-proxy \
   libglib2.0-bin fonts-dejavu-core fonts-noto-mono
-Package	Used for
-conky-std (or conky-all)	Conky with Wayland output
-curl	public IP line
-wlr-randr	real display rotation and on/off state
-wlrctl	foreground app detection
-iio-sensor-proxy	monitor-sensor – accelerometer, early hide on rotation
-libglib2.0-bin	gdbus, gsettings – Phosh D-Bus signals, rotation lock
-fonts-dejavu-core, fonts-noto-mono	DejaVu Sans / Sans Mono, Noto Mono
-util-linux, procps, coreutils, mawk, bash	flock, dmesg, pgrep/pkill, stdbuf, sort, awk (base system)
+```
+
+| Package | Used for |
+|---|---|
+| `conky-std` (or `conky-all`) | Conky with Wayland output |
+| `curl` | public IP line |
+| `wlr-randr` | real display rotation and on/off state |
+| `wlrctl` | foreground app detection |
+| `iio-sensor-proxy` | `monitor-sensor` – accelerometer, early hide on rotation |
+| `libglib2.0-bin` | `gdbus`, `gsettings` – Phosh D-Bus signals, rotation lock |
+| `fonts-dejavu-core`, `fonts-noto-mono` | DejaVu Sans / Sans Mono, Noto Mono |
+| `util-linux`, `procps`, `coreutils`, `mawk`, `bash` | `flock`, `dmesg`, `pgrep`/`pkill`, `stdbuf`, `sort`, `awk` (base system) |
 
 Verify Wayland support:
 
-bash
+```bash
 conky -v | grep -i wayland
+```
 
-The output must contain wayland. Without it, Conky runs through XWayland and Phosh shows it as a normal window.
+The output must contain `wayland`. Without it, Conky runs through XWayland and Phosh shows it as a normal window.
 
-Which user?
+## Which user?
 
-Run everything as the regular furios user, not as root.
+**Run everything as the regular `furios` user, not as root.**
 
-Conky has to connect to the Phosh session, which belongs to furios. Root does not have the session's WAYLAND_DISPLAY and XDG_RUNTIME_DIR, so Conky would fail to connect to the display. All configuration lives in ~/.config/ of the furios user.
+Conky has to connect to the Phosh session, which belongs to `furios`. Root does not have the session's `WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR`, so Conky would fail to connect to the display. All configuration lives in `~/.config/` of the `furios` user.
 
-sudo is only needed to install packages and for the permission setup below.
+`sudo` is only needed to install packages and for the permission setup below.
 
-Permissions (journal and kernel log)
+## Permissions (journal and kernel log)
 
-The syslog block reads the system journal and the kernel ring buffer as the furios user.
+The syslog block reads the system journal and the kernel ring buffer as the `furios` user.
 
-System journal – only root and the groups systemd-journal / adm can read it:
+**System journal** – only root and the groups `systemd-journal` / `adm` can read it:
 
-bash
+```bash
 sudo usermod -aG systemd-journal furios
+```
 
-The group applies after a new login, so reboot the phone afterwards (the Phosh session that starts Conky must get the group too). Check:
+The group applies after a new login, so **reboot the phone** afterwards (the Phosh session that starts Conky must get the group too). Check:
 
-bash
+```bash
 id | grep -o systemd-journal
 journalctl -b -n 5 --no-pager
+```
 
-Kernel log – FuriOS sets ReadKMsg=no in journald, so the journal contains no kernel messages. Instead of changing that (it would duplicate the kernel log), the script reads the kernel ring buffer directly with dmesg. This works as a normal user when kernel.dmesg_restrict is 0:
+**Kernel log** – FuriOS sets `ReadKMsg=no` in journald, so the journal contains no kernel messages. Instead of changing that (it would duplicate the kernel log), the script reads the kernel ring buffer directly with `dmesg`. This works as a normal user when `kernel.dmesg_restrict` is `0`:
 
-bash
+```bash
 sysctl kernel.dmesg_restrict
 dmesg | tail -3
+```
 
-If it is 1, allow it:
+If it is `1`, allow it:
 
-bash
+```bash
 echo 'kernel.dmesg_restrict = 0' | sudo tee /etc/sysctl.d/90-dmesg.conf
 sudo sysctl --system
+```
 
-No rsyslog is needed. The journal on FuriOS is kept in RAM (10-journald-volatile.conf), so nothing extra is written to flash.
+No `rsyslog` is needed. The journal on FuriOS is kept in RAM (`10-journald-volatile.conf`), so nothing extra is written to flash.
 
-Files
+## Files
+
+```
 ~/.config/conky/
 ├── conky.conf        # layout (portrait)
 ├── conky-orient.sh   # controller: rotation, screen lock, foreground app, single instance
@@ -90,12 +104,15 @@ Files
 └── ipv6.sh           # global IPv6 address of wlan0
 ~/.config/autostart/
 └── conky.desktop
+```
 
-Helper commands are kept in separate scripts on purpose: Conky treats {, } and $ as part of its own variable syntax, so commands using awk '{...}' break when written inline in conky.text.
+Helper commands are kept in separate scripts on purpose: Conky treats `{`, `}` and `$` as part of its own variable syntax, so commands using `awk '{...}'` break when written inline in `conky.text`.
 
-Installation
-1. Helper scripts
-bash
+## Installation
+
+### 1. Helper scripts
+
+```bash
 mkdir -p ~/.config/conky
 
 cat > ~/.config/conky/bat.sh <<'EOF'
@@ -116,8 +133,11 @@ ip -6 -o addr show wlan0 scope global | awk '{print $4; exit}'
 EOF
 
 chmod +x ~/.config/conky/*.sh
-2. Syslog script
-bash
+```
+
+### 2. Syslog script
+
+```bash
 cat > ~/.config/conky/syslog.sh <<'EOF'
 #!/bin/bash
 # syslog.sh - kernel log (dmesg) + system journal merged by time, for Conky
@@ -179,21 +199,25 @@ sort -m -s -k1.1,1.19 \
 EOF
 
 chmod +x ~/.config/conky/syslog.sh
+```
 
 How it works:
 
-Kernel messages come from dmesg, service messages from journalctl. Both streams are already time-ordered, so sort -m only merges them (no real sorting).
-Kernel lines are recognised by the fractional seconds in their timestamp and get the kernel: prefix, like a classic syslog.
-Everything else (filtering, timestamp shortening, keeping the last N lines) is done in a single awk, so one refresh costs only a few short processes every 10 s.
-Noise is filtered by the /binder: |sd 0:0:0:2: |.../ pattern – extend it as needed.
-With the third argument the number of syslog lines follows the number of logged-in users, so the block always ends above the bottom edge of the screen.
+- Kernel messages come from `dmesg`, service messages from `journalctl`. Both streams are already time-ordered, so `sort -m` only merges them (no real sorting).
+- Kernel lines are recognised by the fractional seconds in their timestamp and get the `kernel:` prefix, like a classic syslog.
+- Everything else (filtering, timestamp shortening, keeping the last N lines) is done in a single `awk`, so one refresh costs only a few short processes every 10 s.
+- Noise is filtered by the `/binder: |sd 0:0:0:2: |.../` pattern – extend it as needed.
+- With the third argument the number of syslog lines follows the number of logged-in users, so the block always ends above the bottom edge of the screen.
 
 Test (after the reboot from the permissions step):
 
-bash
+```bash
 ~/.config/conky/syslog.sh 15 120
-3. Conky configuration
-bash
+```
+
+### 3. Conky configuration
+
+```bash
 cat > ~/.config/conky/conky.conf <<'EOF'
 conky.config = {
     out_to_wayland = true,
@@ -275,11 +299,13 @@ ${color1}SYSLOG ${color4}${hr 1}${color3}
 ${font Noto Mono:size=6}${execi 10 ~/.config/conky/syslog.sh 35 400 3}${font}${color}
 ]];
 EOF
+```
 
-syslog.sh 35 400 3 means: 35 syslog lines when 3 users are logged in, lines cut to 400 characters (Conky clips them at the screen edge). Raise or lower 35 until the last line ends just above the bottom edge.
+`syslog.sh 35 400 3` means: 35 syslog lines when 3 users are logged in, lines cut to 400 characters (Conky clips them at the screen edge). Raise or lower `35` until the last line ends just above the bottom edge.
 
-4. Controller
-bash
+### 4. Controller
+
+```bash
 cat > ~/.config/conky/conky-orient.sh <<'EOF'
 #!/bin/bash
 # Conky controller for FuriPhone FLX1s:
@@ -432,41 +458,49 @@ display_state() {  # sets ST to off / portrait / landscape
 EOF
 
 chmod +x ~/.config/conky/conky-orient.sh
+```
 
 How it works:
 
-Events, not polling. Several monitors are merged into one pipe and handled by a single loop:
-monitor-sensor --accel – accelerometer orientation (via iio-sensor-proxy; on the FLX1s the sensor is not available in /sys, it goes through the Android HAL),
-gdbus monitor … org.gnome.Mutter.DisplayConfig – MonitorsChanged when Phosh really rotates the display or switches it off,
-gdbus monitor … org.gnome.ScreenSaver – ActiveChanged (true/false) on lock / unlock,
-gsettings monitor … orientation-lock – the rotation lock toggle in the Phosh menu,
-wlrctl toplevel find state:active – an app in the foreground, polled every 0.4 s, but only while Conky could be visible (portrait, unlocked, display on).
-No flicker on rotation. The display rotation is a compositor state (Phoc); the kernel never sees it, so there is nothing to read in /sys or /proc. The accelerometer event arrives before Phosh rotates the display, so Conky is stopped early; wlr-randr then confirms the real rotation. If the display does not follow (rotation lock), Conky comes back.
-Pausing instead of killing. Hidden Conky is paused with SIGSTOP and resumed with SIGCONT, so it continues instantly. A stopped process ignores SIGTERM, so it is always woken up (SIGCONT) before being terminated.
-Single instance. flock on $XDG_RUNTIME_DIR/conky-orient.lock refuses a second controller; child processes do not inherit the lock (9>&-). Conky itself is started only when no instance is running.
-Cheap waiting. snooze uses a bash read timeout instead of spawning sleep.
-5. First run (foreground test)
-bash
+- **Events, not polling.** Several monitors are merged into one pipe and handled by a single loop:
+  - `monitor-sensor --accel` – accelerometer orientation (via `iio-sensor-proxy`; on the FLX1s the sensor is not available in `/sys`, it goes through the Android HAL),
+  - `gdbus monitor … org.gnome.Mutter.DisplayConfig` – `MonitorsChanged` when Phosh really rotates the display or switches it off,
+  - `gdbus monitor … org.gnome.ScreenSaver` – `ActiveChanged (true/false)` on lock / unlock,
+  - `gsettings monitor … orientation-lock` – the rotation lock toggle in the Phosh menu,
+  - `wlrctl toplevel find state:active` – an app in the foreground, polled every 0.4 s, but **only while Conky could be visible** (portrait, unlocked, display on).
+- **No flicker on rotation.** The display rotation is a compositor state (Phoc); the kernel never sees it, so there is nothing to read in `/sys` or `/proc`. The accelerometer event arrives *before* Phosh rotates the display, so Conky is stopped early; `wlr-randr` then confirms the real rotation. If the display does not follow (rotation lock), Conky comes back.
+- **Pausing instead of killing.** Hidden Conky is paused with `SIGSTOP` and resumed with `SIGCONT`, so it continues instantly. A stopped process ignores `SIGTERM`, so it is always woken up (`SIGCONT`) before being terminated.
+- **Single instance.** `flock` on `$XDG_RUNTIME_DIR/conky-orient.lock` refuses a second controller; child processes do not inherit the lock (`9>&-`). Conky itself is started only when no instance is running.
+- **Cheap waiting.** `snooze` uses a bash `read` timeout instead of spawning `sleep`.
+
+### 5. First run (foreground test)
+
+```bash
 conky -c ~/.config/conky/conky.conf
+```
 
-Lines such as FOUND: wayland, drawing to single buffer, Fontconfig warning or 'unknown' tty session running are informational only. Stop with Ctrl+C.
+Lines such as `FOUND: wayland`, `drawing to single buffer`, `Fontconfig warning` or `'unknown' tty session running` are informational only. Stop with `Ctrl+C`.
 
-6. Start in the background
-bash
+### 6. Start in the background
+
+```bash
 nohup ~/.config/conky/conky-orient.sh >/dev/null 2>&1 &
+```
 
-A second start is refused (conky-orient.sh is already running).
+A second start is refused (`conky-orient.sh is already running`).
 
 Stop everything:
 
-bash
+```bash
 pkill -f conky-orient.sh; pkill -f "monitor-sensor --accel"; pkill -f "gsettings monitor"; \
 pkill -f "gdbus monitor --session --dest org.gnome"; pkill -CONT -x conky; pkill -x conky
+```
 
-Changes in conky.conf are picked up by Conky automatically; changes in conky-orient.sh need a stop and a new start.
+Changes in `conky.conf` are picked up by Conky automatically; changes in `conky-orient.sh` need a stop and a new start.
 
-7. Autostart
-bash
+### 7. Autostart
+
+```bash
 mkdir -p ~/.config/autostart
 
 cat > ~/.config/autostart/conky.desktop <<'EOF'
@@ -477,26 +511,41 @@ Exec=sh -c "sleep 10 && ~/.config/conky/conky-orient.sh >/dev/null 2>&1"
 X-GNOME-Autostart-enabled=true
 NoDisplay=true
 EOF
+```
 
 The 10-second delay gives Phosh time to start.
 
-8. Verify (optional)
+### 8. Verify (optional)
 
 Detection sources:
 
-bash
+```bash
 monitor-sensor --accel                       # rotate the phone: left-up / normal ...
 wlr-randr | grep -E 'Enabled|Transform'      # Transform: normal / 90 / 270 / 180
 gdbus monitor --session --dest org.gnome.ScreenSaver --object-path /org/gnome/ScreenSaver
 gsettings get org.gnome.settings-daemon.peripherals.touchscreen orientation-lock
 wlrctl toplevel find state:active; echo $?   # 0 = an app is in the foreground
+```
 
 Power saving – lock the phone (or open an app) and run over SSH:
 
-bash
+```bash
 P=$(pgrep -x conky)
 awk '{print "CPU ticks:", $14+$15}' /proc/$P/stat; sleep 10
 awk '{print "CPU ticks:", $14+$15}' /proc/$P/stat
 grep State /proc/$P/status
+```
 
-While hidden, both numbers are identical (no CPU time used in 10 s) and the state is T (stopped). The %CPU column of ps is the average over the whole process lifetime, so it does not drop to zero while Conky is paused.
+While hidden, both numbers are identical (no CPU time used in 10 s) and the state is `T (stopped)`. The `%CPU` column of `ps` is the average over the whole process lifetime, so it does not drop to zero while Conky is paused.
+
+## Customisation
+
+| What | Where |
+|---|---|
+| Colours | `color1` … `color8` in `conky.conf` (separator lines: `color4`) |
+| Number of syslog lines | first number in `syslog.sh 35 400 3` |
+| Max. logged-in lines | `head -n 10` in `conky.conf` **and** `WHO_MAX` in `syslog.sh` |
+| Syslog noise filter | `/binder: \|sd 0:0:0:2: \|…/` pattern in `syslog.sh` |
+| Low battery warning | `< 20` in the battery bar line |
+| Foreground app detection | `APP_WATCH` / `POLL` in `conky-orient.sh` |
+| Box size and margins | `minimum_width`, `maximum_width`, `gap_y`, `minimum_height` |
